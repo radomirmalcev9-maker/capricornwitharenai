@@ -272,6 +272,28 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 ---
 
+## Соседний проект в этой папке: `arena-api`
+
+В папке [`arenaaispofandpars/`](arenaaispofandpars/) лежит отдельный проект —
+**[arena-api](https://github.com/radomirmalcev9-maker/arenaaispofandpars)**, типизированный Python-клиент и CLI
+для Arena (`arena.ai`) с автоматическим подхватом сессии и прокси из браузера, TLS-имперсонацией и встроенным
+авторешателем капчи.
+
+Это **самостоятельная библиотека**, а не часть Капри: она не импортируется голосовым ассистентом и у неё своя
+лицензия (Apache 2.0, см. `arenaaispofandpars/LICENSE`). Файлы лежат копией, без истории коммитов — актуальная
+версия всегда в отдельном репозитории.
+
+Если хочется поставить её отдельно, из папки `arenaaispofandpars/`:
+
+```bash
+python -m pip install -e ".[auto]"
+python -m arena_api --status
+```
+
+Подробности и все команды — в [`arenaaispofandpars/README.md`](arenaaispofandpars/README.md).
+
+---
+
 ## Приватность
 
 - Распознавание речи — офлайн (Vosk). С `use_google_stt` фраза после имени уточняется через Google.
@@ -287,7 +309,8 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 Лицензия не распространяется на:
 - **персонажа Капри и вселенную Cyberpunk: Edgerunners** — они принадлежат правообладателям;
-- **модель распознавания речи** в папке `bundled` — [Vosk](https://alphacephei.com/vosk/models) от Alpha Cephei, лицензия Apache 2.0.
+- **модель распознавания речи** в папке `bundled` — [Vosk](https://alphacephei.com/vosk/models) от Alpha Cephei, лицензия Apache 2.0;
+- **проект в папке `arenaaispofandpars`** — он распространяется отдельно под лицензией Apache 2.0 (см. `arenaaispofandpars/LICENSE`).
 
 ---
 

@@ -1,0 +1,101 @@
+[build-system]
+# >=77 for the SPDX `license = "Apache-2.0"` spelling.
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arena-api"
+version = "0.4.0"
+description = "Typed sync/async client for Arena Gradio and Direct Chat streams"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = ["httpx[http2]>=0.27,<1"]
+
+[project.scripts]
+# The zero-configuration bootstrap CLI: `arena-api --explain`, `arena-api --status`.
+arena-api = "arena_api.auto:main"
+
+[project.optional-dependencies]
+test = ["pytest>=8", "tomli>=2; python_version < '3.11'"]
+# Linters/type checker used by CI and by `pip install -e '.[dev]'`.
+dev = ["pytest>=8", "pyflakes>=3.2", "mypy>=1.11"]
+firefox = ["rookiepy>=0.5"]
+# Playwright/curl_cffi are imported lazily inside arena_api.auth, so the
+# package installs and imports without them.
+e2e = ["playwright>=1.44", "curl_cffi>=0.7", "numpy>=1.24"]
+# recaptcha_toolkit imports every backend lazily, so the base install stays
+# dependency-free. Pick the extras you actually need.
+#
+# Playwright branch: stealth + audio/image reCAPTCHA solving.
+captcha = [
+    "playwright>=1.44",
+    "playwright-recaptcha>=0.5",
+    "playwright-stealth>=2.0",
+]
+# Selenium branch: stealth (CDP hook) + audio reCAPTCHA solving.
+captcha-selenium = [
+    "selenium>=4.20",
+    "selenium-recaptcha-solver>=1.9",
+]
+# Local YOLO solver (pulls ultralytics + torch; large download).
+vision = ["vision-ai-recaptcha-solver>=0.1"]
+# Send requests with a real browser's TLS/HTTP2 fingerprint instead of Python's.
+# This is what a cookie-aware edge (Cloudflare and the cf_clearance cookie it
+# issues) actually checks: a session copied from Firefox but presented with
+# httpx's fingerprint can be challenged even though every cookie is correct.
+# arena_api.transport imports it lazily, so the base install stays light.
+impersonate = ["curl-cffi>=0.7", "httpx-curl-cffi>=0.1.5"]
+# arena_api.auth bridge: solve a reCAPTCHA met during an E2E/refresh run.
+# Everything is imported lazily, so the base install stays dependency-free.
+auth-captcha = [
+    "playwright>=1.44",
+    "playwright-recaptcha>=0.5",
+    "playwright-stealth>=2.0",
+]
+# One extra for the whole zero-config path (arena_api.auto): read Chrome/Edge/
+# Brave/... profiles, validate fast with curl_cffi, solve challenges on refresh,
+# and send the session's own TLS fingerprint. Still `playwright install
+# chromium` afterwards.
+auto = [
+    "rookiepy>=0.5",
+    "curl_cffi>=0.7",
+    "httpx-curl-cffi>=0.1.5",
+    "playwright>=1.44",
+    "playwright-recaptcha>=0.5",
+    "playwright-stealth>=2.0",
+]
+
+[tool.setuptools.packages.find]
+# recaptcha_toolkit ships inside the package (arena_api/_vendor) so that
+# installing this distribution cannot collide with a same-named PyPI project.
+include = ["arena_api*"]
+
+# PEP 561: ship the type annotations with the wheel.
+[tool.setuptools.package-data]
+arena_api = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+files = ["arena_api"]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true

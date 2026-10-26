@@ -1,0 +1,107 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    name: pytest (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install (test + E2E extras)
+        run: |
+          python -m pip install --upgrade pip
+          # playwright-stealth is imported by the vendored toolkit's bridge tests;
+          # the [impersonate] extra lets the curl_cffi transport be built for real.
+          # Browser binaries are NOT needed: the whole suite is offline.
+          python -m pip install -e '.[test,e2e,impersonate]' playwright-stealth
+
+      - name: Run tests
+        run: python -m pytest -q
+
+  # The library reads real browser profiles, so the platform-specific paths
+  # (Firefox root, User-Agent token) matter on every OS, not just Linux.
+  tests-platform:
+    name: pytest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install (test + E2E extras)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[test,e2e,impersonate]' playwright-stealth
+
+      - name: Run tests
+        run: python -m pytest -q
+
+  lint:
+    name: pyflakes + mypy + packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install (dev extra only)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+
+      - name: pyflakes
+        run: python -m pyflakes arena_api tests examples
+
+      - name: mypy
+        run: python -m mypy
+
+      - name: Importing the package stays dependency-free
+        run: |
+          python - <<'PY'
+          import sys
+          import arena_api
+
+          heavy = [
+              name
+              for name in (
+                  "playwright",
+                  "rookiepy",
+                  "arena_api._vendor.recaptcha_toolkit",
+                  "curl_cffi",
+                  "torch",
+                  "selenium",
+              )
+              if name in sys.modules
+          ]
+          assert not heavy, f"import arena_api pulled in: {heavy}"
+          missing = [name for name in arena_api.__all__ if not hasattr(arena_api, name)]
+          assert not missing, f"__all__ promises names that do not exist: {missing}"
+          print(f"ok: {len(arena_api.__all__)} exports, no heavy imports")
+          PY
+
+      - name: CLI smoke test
+        run: python -m arena_api --explain
+
+      - name: PEP 561 marker is packaged
+        run: test -f arena_api/py.typed
