@@ -1,119 +1,161 @@
-"""Установка нейросети для разговора: Ollama + подходящая модель, и сразу прописать её в config.json.
+"""Подключение Капри к Arena через arena-api.
 
     python tools/install_ai.py
 
-Вызывается из setup_ai.bat. Модель выбирается по видеокарте и памяти, но можно выбрать и самому."""
+Вызывается из setup_ai.bat. Делает три вещи: доставляет недостающие библиотеки,
+находит (или создаёт) сессию Arena и прописывает настройки в config.json.
+Все сообщения здесь, а не в .bat: cmd плохо читает русский текст в батниках.
+"""
 import json
 import os
-import shutil
 import subprocess
 import sys
-import time
-import urllib.request
-import webbrowser
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+VENDOR = os.path.join(BASE, "arenaaispofandpars")
+STATE = os.path.join(BASE, "arena_state", "cookies.json")
 CONFIG = os.path.join(BASE, "config.json")
-API = "http://127.0.0.1:11434/api/tags"
-# (модель, описание, проверена ли с Капри, подходит ли компьютеру: f(видеопамять NVIDIA ГБ, оперативка ГБ))
-MODELS = [
-    ("qwen3:14b", "самая умная, ~9 ГБ", False, lambda vram, ram: vram >= 11.5),
-    ("qwen3:8b", "умная, ~5 ГБ", True, lambda vram, ram: vram >= 7.5 or ram >= 16),
-    ("qwen3:4b-instruct", "лёгкая, ~2,5 ГБ, для ноутбуков и слабых ПК", True, lambda vram, ram: True),
-    ("qwen3:1.7b", "самая лёгкая, ~1,4 ГБ, быстрая, но отвечает глупее", False, lambda vram, ram: vram < 7.5),
-]
 
-
-def recommended(vram, ram):
-    """Самая умная из проверенных с Капри, которая будет отвечать быстро. qwen3:14b не советуем, пока
-    не проверена, — но на мощных видеокартах она есть в списке."""
-    if vram >= 7.5:
-        return "qwen3:8b"
-    if vram >= 3.5 or ram >= 8:
-        return "qwen3:4b-instruct"
-    return "qwen3:1.7b"
-
-
-def suitable(vram, ram):
-    """[(модель, описание)] только тех, что потянет этот компьютер."""
-    out = []
-    for name, desc, tested, fits in MODELS:
-        if not fits(vram, ram):
-            continue
-        if name == "qwen3:8b" and vram < 7.5:
-            desc += ", без видеокарты будет думать долго"
-        if not tested:
-            desc += " (с Капри не проверена)"
-        out.append((name, desc))
-    return out
+#: Минимум для работы и максимум для удобства: чтение профилей Chrome/Edge и
+#: TLS-отпечаток настоящего браузера заметно снижают шанс словить проверку.
+NEEDED = ["httpx[http2]>=0.27"]
+EXTRA = ["rookiepy>=0.5", "curl_cffi>=0.7", "httpx-curl-cffi>=0.1.5"]
 
 
 def say(text=""):
     print(text, flush=True)
 
 
-def ollama_exe():
-    local = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama", "ollama.exe")
-    return shutil.which("ollama") or (local if os.path.exists(local) else None)
-
-
-def server_up():
+def pip(*packages):
     try:
-        with urllib.request.urlopen(API, timeout=2):
-            return True
-    except Exception:
+        return subprocess.run([sys.executable, "-m", "pip", "install", *packages]).returncode == 0
+    except Exception as e:  # noqa: BLE001
+        say(f"[Capri] pip не сработал: {e}")
         return False
 
 
-def install_ollama():
-    say("[Capri] Ollama не найдена. Устанавливаю...")
-    if shutil.which("winget"):
-        r = subprocess.run(["winget", "install", "-e", "--id", "Ollama.Ollama"])
-        if r.returncode == 0 and ollama_exe():
-            return ollama_exe()
-    say("[Capri] Автоматически не вышло. Открываю страницу Ollama — скачай и установи её,")
-    say("        потом вернись в это окно и нажми Enter.")
-    webbrowser.open("https://ollama.com/download")
-    input()
-    return ollama_exe()
+def ensure_packages():
+    say("[Capri] Проверяю библиотеки для arena-api...")
+    if not pip(*NEEDED):
+        say("[Capri] Не удалось поставить httpx — проверь интернет и запусти setup_ai.bat ещё раз.")
+        return False
+    if not pip(*EXTRA):
+        say("[Capri] Дополнительные библиотеки не встали — Капри всё равно попробует подключиться,")
+        say("        просто проверок от Arena может быть больше.")
+    return True
 
 
-def gpu_memory_gb():
-    """Видеопамять NVIDIA в ГБ или 0, если такой видеокарты нет."""
+def import_api():
+    if VENDOR not in sys.path:
+        sys.path.insert(0, VENDOR)
     try:
-        out = subprocess.run(["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
-                             capture_output=True, text=True, timeout=10).stdout
-        return max(int(x) for x in out.split()) / 1024
-    except Exception:
-        return 0
+        import arena_api
+        return arena_api
+    except Exception as e:  # noqa: BLE001
+        say(f"[Capri] Модуль arena_api не загрузился: {e}")
+        say("        Проверь, что папка arenaaispofandpars лежит рядом с main.py.")
+        return None
 
 
-def ram_gb():
+def options_for(api, interactive):
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    return api.AutoOptions(
+        storage_path=STATE,
+        interactive=interactive,
+        verify=True,
+        solve_captchas="auto",
+        output=sys.stdout,
+    )
+
+
+def show_models(client):
     try:
-        import psutil
-        return psutil.virtual_memory().total / 2**30
-    except Exception:
-        return 0
+        models = [m for m in client.get_models() if m.available]
+    except Exception:  # noqa: BLE001
+        return
+    if not models:
+        return
+    say(f"[Capri] Доступных моделей: {len(models)}. Например:")
+    for model in models[:8]:
+        say(f"        {model.id}" + (f" — {model.display_name}" if model.display_name else ""))
+
+    say("[Capri] Модель можно закрепить в config.json: \"arena_model\": \"…\" (пусто — выбирать самой).")
 
 
-def choose_model(vram=None, ram=None):
-    vram = gpu_memory_gb() if vram is None else vram
-    ram = ram_gb() if ram is None else ram
-    say(f"[Capri] Видеокарта NVIDIA: {f'{vram:.0f} ГБ' if vram else 'нет'}, оперативная память: {ram:.0f} ГБ")
-    options = suitable(vram, ram)
-    best = recommended(vram, ram)
-    say("[Capri] Модели, которые потянет этот компьютер:")
-    for i, (name, desc) in enumerate(options, 1):
-        say(f"   {i} — {name}: {desc}{'   <- советую' if name == best else ''}")
-    numbers = ", ".join(str(i) for i in range(1, len(options) + 1))
-    choice = input(f"Нажми Enter (будет {best}) или введи номер ({numbers}): ").strip()
-    if choice.isdigit() and 1 <= int(choice) <= len(options):
-        return options[int(choice) - 1][0]
-    return best
+def check_session(api):
+    """Есть ли уже готовая сессия Arena (браузер, state/cookies.json, ARENA_COOKIE)."""
+    say("[Capri] Ищу сессию Arena в браузере...")
+    options = options_for(api, interactive=False)
+    try:
+        discovered = api.discover_session(options)
+    except Exception as e:  # noqa: BLE001
+        say(f"[Capri] Поиск сессии не получился: {e}")
+        return False
+    if discovered is None:
+        say("[Capri] Сессия не найдена.")
+        return False
+    say(f"[Capri] Нашла: {discovered.description}")
+    try:
+        client = api.auto_client(options)
+    except Exception as e:  # noqa: BLE001
+        say(f"[Capri] Сессия есть, но Arena её не приняла: {e}")
+        return False
+    try:
+        show_models(client)
+    finally:
+        try:
+            client.close()
+        except Exception:  # noqa: BLE001
+            pass
+    say("[Capri] Проверка пройдена: Arena отвечает.")
+    return True
 
 
-def save_model(name):
-    """Прописать модель в config.json, не трогая остальные настройки."""
+def playwright_ready():
+    try:
+        import playwright  # noqa: F401
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def install_playwright():
+    if not playwright_ready():
+        choice = input("[Capri] Для окна входа нужен Playwright (~40 МБ). Установить? [y/N]: ").strip().lower()
+        if choice not in ("y", "yes", "д", "да"):
+            return False
+        if not pip("playwright>=1.44"):
+            return False
+    say("[Capri] Проверяю браузер для окна входа...")
+    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"])
+    return True
+
+
+def login(api):
+    say()
+    say("[Capri] Можно войти вручную: откроется окно браузера, войди на arena.ai,")
+    say("        потом вернись сюда и нажми Enter.")
+    choice = input("Открыть окно входа? [y/N]: ").strip().lower()
+    if choice not in ("y", "yes", "д", "да"):
+        return False
+    if not install_playwright():
+        say("[Capri] Без Playwright окно входа не открыть.")
+        return False
+    try:
+        outcome = api.interactive_login(options_for(api, interactive=True), path=STATE)
+    except Exception as e:  # noqa: BLE001
+        say(f"[Capri] Вход не получился: {e}")
+        say("        Если ошибка про браузер — выполни: python -m playwright install chromium")
+        return False
+    if outcome.ok:
+        say(f"[Capri] Сессия сохранена: {outcome.path or STATE}")
+        return True
+    say("[Capri] Вход не подтвердился. Проверь, что ты вошёл на arena.ai, и попробуй снова.")
+    return False
+
+
+def save_settings():
+    """Прописать arena_ai в config.json, убрать старые ключи Ollama и не тронуть остальное."""
     data = {}
     if os.path.exists(CONFIG):
         try:
@@ -121,40 +163,50 @@ def save_model(name):
                 text = f.read()
             data = json.loads(text) if text.strip() else {}
         except ValueError:
-            say("[Capri] В config.json ошибка, не могу туда записать. Впиши вручную:")
-            say(f'        "local_model": "{name}",')
+            say("[Capri] В config.json ошибка, не могу туда записать.")
+            say('        Впиши вручную: "arena_ai": true')
             return False
-    data["local_model"] = name
-    data["local_ai"] = True
+    data["arena_ai"] = True
+    data.setdefault("arena_model", "")
+    data.setdefault("arena_backend", "auto")
+    data.setdefault("arena_base_url", "https://arena.ai")
+    data.setdefault("arena_timeout", 90)
+    data.pop("local_ai", None)
+    data.pop("local_model", None)
     with open(CONFIG, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    say("[Capri] В config.json записано: \"arena_ai\": true")
     return True
 
 
 def main():
-    exe = ollama_exe() or install_ollama()
-    if not exe:
-        say("[Capri] Ollama так и не нашлась. Установи её с https://ollama.com/download и запусти setup_ai.bat ещё раз.")
+    say("[Capri] Подключаю разговор через Arena (arena-api).")
+    say()
+    if not ensure_packages():
         return 1
-    if not server_up():
-        subprocess.Popen([exe, "serve"], creationflags=0x08000000)
-        for _ in range(30):
-            time.sleep(0.5)
-            if server_up():
-                break
-    if not server_up():
-        say("[Capri] Ollama не запускается. Открой её из меню «Пуск» и запусти setup_ai.bat ещё раз.")
+    api = import_api()
+    if api is None:
         return 1
-    model = choose_model()
-    say(f"\n[Capri] Скачиваю {model}. Это несколько гигабайт, может занять время.")
-    say("        Если загрузка не идёт — включи VPN и запусти setup_ai.bat ещё раз.\n")
-    if subprocess.run([exe, "pull", model]).returncode != 0:
-        say("\n[Capri] Модель не скачалась. Проверь интернет (или включи VPN) и запусти setup_ai.bat ещё раз.")
-        return 1
-    if save_model(model):
-        say(f"\n[Capri] Готово! Модель {model} прописана в config.json.")
-    say("[Capri] Перезапусти Капри (значок в трее -> «Выход», затем run.bat) — и можно болтать.")
-    return 0
+
+    ready = check_session(api)
+    if not ready:
+        say()
+        say("[Capri] Можно войти двумя способами:")
+        say("        1) войти на https://arena.ai в своём браузере (Firefox, Chrome, Edge) и запустить")
+        say("           setup_ai.bat заново — Капри сама найдёт сессию;")
+        say("        2) войти в окне, которое откроет этот скрипт.")
+        ready = login(api)
+        if ready:
+            check_session(api)
+
+    save_settings()
+    say()
+    if ready:
+        say("[Capri] Готово! Перезапусти Капри (значок в трее -> «Выход», затем run.bat) — и можно болтать.")
+        return 0
+    say("[Capri] Настройки записаны, но сессии пока нет: без неё Капри будет отвечать только поиском.")
+    say("        Войди на arena.ai в браузере и запусти setup_ai.bat ещё раз.")
+    return 1
 
 
 if __name__ == "__main__":

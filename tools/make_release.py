@@ -2,7 +2,8 @@
 
     python tools/make_release.py [куда_сохранить.zip]
 
-В архив не попадают: config.json (личные настройки), capri.log (журнал разговоров), reports/
+В архив не попадают: config.json (личные настройки), capri.log (журнал разговоров), arena_state/
+(сессия Arena — куки), reports/
 (отчёты о ПК), samples/ (образцы и чужие записи), models/ (распаковывается из bundled/ через setup.bat),
 кэш Python."""
 import os
@@ -10,7 +11,7 @@ import sys
 import zipfile
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SKIP_DIRS = {"models", "reports", "samples", "__pycache__", ".git", ".github", ".claude"}
+SKIP_DIRS = {"models", "reports", "samples", "arena_state", "__pycache__", ".git", ".github", ".claude"}
 SKIP_FILES = {"config.json", "capri.log"}
 SKIP_EXT = (".pyc", ".tmp", ".zip", ".log")
 

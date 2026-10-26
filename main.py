@@ -40,7 +40,7 @@ try:
 
     from actions import CAPRI_URL, Actions, Reply
     from ai import AI
-    from local_ai import LocalAI
+    from arena_ai import ArenaAI
     from persona import LINES, gendered, line, set_user
     from avatar import Avatar
     import zapret
@@ -54,8 +54,11 @@ except ImportError as e:
 
 DEFAULTS = {
     "enable_ai": False,
-    "local_ai": True,
-    "local_model": "qwen3:8b",
+    "arena_ai": True,
+    "arena_model": "",         # "" — Arena сама выберет модель
+    "arena_backend": "auto",    # "auto" — Gradio, при отказе Direct Chat; "gradio"; "direct"
+    "arena_base_url": "https://arena.ai",
+    "arena_timeout": 90,        # сколько секунд ждать ответ
     "barge_in": True,
     "mic_device": None,
     "chatter": True,
@@ -262,13 +265,13 @@ class Capri(QObject):
         self.wake_re = re.compile(r"(^|\s)(" + "|".join(map(re.escape, words)) + r")(?=\s|$|[,.!?])",
                                   re.IGNORECASE)
         self.ai = AI(cfg)
-        self.local = LocalAI(cfg) if cfg.get("local_ai") else None
-        if self.local:
-            self.local.on_model_change = self._remember_model
+        self.arena = ArenaAI(cfg) if cfg.get("arena_ai") else None
+        if self.arena:
+            self.arena.on_model_change = self._remember_model
         self.actions = Actions(cfg, BASE, self.ai, save=save_entry)
         self.config_mtime = self._config_mtime()
         self.zapret_checked = False  # предлагали ли уже исправить zapret в этом сеансе
-        self.actions.local = self.local
+        self.actions.arena = self.arena
         self.speaker = Speaker(cfg)
         self.jobs = queue.Queue()
         self.awake_until = 0.0
@@ -288,8 +291,8 @@ class Capri(QObject):
 
     def start(self):
         threading.Thread(target=self._worker, daemon=True).start()
-        if self.local:
-            threading.Thread(target=self.local.start_server, daemon=True).start()
+        if self.arena:
+            threading.Thread(target=self.arena.start_server, daemon=True).start()
         model =os.path.join(BASE, self.cfg["vosk_model"])
         if os.path.isdir(model):
             self.listener = Listener(model, self.on_final, self.on_partial, self.on_listener_error,
@@ -343,8 +346,8 @@ class Capri(QObject):
             text = line("chatter_night")
         elif 6 <= hour < 11 and random.random() < 0.3:
             text = line("chatter_morning")
-        elif self.local and random.random() < 0.4:
-            text = self.local.chatter()
+        elif self.arena and random.random() < 0.4:
+            text = self.arena.chatter()
         for _ in range(5):
             if text and text not in self.recent_chatter:
                 break
@@ -458,9 +461,9 @@ class Capri(QObject):
         log.info("Поиск в браузере, если не знаю: %s", "включён" if on else "выключен")
 
     def _remember_model(self, name):
-        """Ollama нашла другую скачанную модель — записываем её, чтобы не искать при каждом запуске."""
-        self.cfg["local_model"] = name
-        save_setting("local_model", name)
+        """Arena выбрала модель — записываем её, чтобы не искать при каждом запуске."""
+        self.cfg["arena_model"] = name
+        save_setting("arena_model", name)
 
     # ----- config.json на лету -----
     @staticmethod
@@ -634,8 +637,8 @@ class Capri(QObject):
             if self.cfg.get("enable_ai") and self.ai.available:
                 reply = Reply(self.ai.ask(cmd), "answer")
             else:
-                answer = self.local.ask(cmd) if self.local else None
-                reply = Reply(answer, "answer") if answer else self.actions.fallback(cmd, force_search=bool(self.local))
+                answer = self.arena.ask(cmd) if self.arena else None
+                reply = Reply(answer, "answer") if answer else self.actions.fallback(cmd, force_search=bool(self.arena))
         if reply.action == "answer" and self.cfg.get("teleport_on_answer"):
             self.hop.emit()  # отвечает, скача по экрану красной молнией
         if reply.action == "wave":
@@ -777,6 +780,13 @@ def main():
         from profile_dialog import ProfileDialog
         show_window("profile", lambda: ProfileDialog(capri))
 
+    def open_arena_setup():
+        """Мастер подключения к Arena: библиотеки, сессия браузера, вход по надобности."""
+        try:
+            os.startfile(os.path.join(BASE, "setup_ai.bat"))
+        except OSError:
+            log.exception("Не удалось открыть setup_ai.bat")
+
     menu = QMenu()
     for title, fn in (("Позвать Капри", capri.call_from_click),
                       ("Замолчать", capri.interrupt),
@@ -787,6 +797,7 @@ def main():
                       ("Спрятать", avatar.vanish),
                       ("MIC", None),
                       ("SEARCH", None),
+                      ("Подключить Arena…", open_arena_setup),
                       ("Открыть config.json", lambda: os.startfile(CONFIG_PATH)),
                       ("Капри на GitHub (обновления)…", lambda: capri.actions.web(CAPRI_URL)),
                       (None, None),

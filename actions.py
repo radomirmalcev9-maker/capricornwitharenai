@@ -134,8 +134,8 @@ def set_brightness(v):
 
 PROTECTED_PROCS = {"explorer", "python", "pythonw", "svchost", "csrss", "winlogon", "dwm", "lsass", "services",
                    "system", "smss", "wininit", "fontdrvhost", "sihost", "taskhostw", "ctfmon", "runtimebroker",
-                   "searchhost", "startmenuexperiencehost", "shellexperiencehost", "textinputhost", "ollama",
-                   "ollama app", "conhost", "audiodg"}
+                   "searchhost", "startmenuexperiencehost", "shellexperiencehost", "textinputhost",
+                   "conhost", "audiodg"}
 SKIP_WORDS = ("uninstall", "удален", "удалить", "деинсталл", "readme", "help", "справка", "documentation",
               "license", "support", "поддержк", "feedback", "release notes", "website")
 
@@ -948,7 +948,7 @@ class Actions:
         self.choice = None  # варианты приложений, из которых пользователь сейчас выбирает
         self.youtube_opened_at = 0.0  # когда Капри последний раз открывала YouTube
         self.media_paused = None      # какой плеер Капри поставила на паузу
-        self.local = None
+        self.arena = None
         self.routes = [
             (r"^(выход|выключись|отключись|заверши работу|завершить работу)$", self.quit),
             (r"^(спрячься|скройся|исчезни|пока|отбой|свободна)\b|"
@@ -1622,8 +1622,8 @@ class Actions:
         os.startfile(path)
         use_ai = self.cfg.get("enable_ai") and self.ai and self.ai.available
         spoken = self.ai.summarize_report(report) if use_ai else None
-        if not spoken and self.local:
-            spoken = self.local.summarize_report(report)
+        if not spoken and self.arena:
+            spoken = self.arena.summarize_report(report)
         if spoken:
             return Reply(spoken)
         if not issues:
