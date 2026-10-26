@@ -9,6 +9,9 @@ capri.log
 reports/
 samples/
 
+# сессия Arena: куки, как пароль — в git не попадают
+arena_state/
+
 # служебное
 __pycache__/
 *.pyc

@@ -12,6 +12,7 @@ Pillow>=10.0
 numpy>=1.26
 imageio-ffmpeg>=0.5
 anthropic>=0.60
+httpx[http2]>=0.27
 winrt-runtime>=2.0
 winrt-Windows.Media.Control>=2.0
 winrt-Windows.Foundation>=2.0
