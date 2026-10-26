@@ -88,6 +88,50 @@ VPN не нужен. Дождись надписи «Готово».
 
 > Windows может спросить доступ к микрофону — разреши. Нужный микрофон можно выбрать в меню трея → **«Микрофон»**.
 
+### Вариант: из git, командной строкой
+
+Если git уже стоит (иначе — [git-scm.com/download/win](https://git-scm.com/download/win)), всё то же самое
+делается из терминала. В PowerShell перед `.bat` нужен `.\`, в cmd — без него.
+
+```
+git clone https://github.com/radomirmalcev9-maker/capricornwitharenai.git capri
+cd capri
+.\setup.bat        # библиотеки + модель распознавания речи
+.\setup_ai.bat     # подключение к Arena: сессия браузера и вход
+.\run.bat          # запуск Капри
+```
+
+Архив с историей весит ~120 МБ (в основном модель распознавания речи в `bundled/`); если она не нужна
+в истории — `git clone --depth 1 …`.
+
+Без `.bat`-файлов, вручную (PowerShell, Python 3.13 в PATH):
+
+```
+py -3.13 -m pip install -r requirements.txt
+py -3.13 tools\download_model.py
+py -3.13 -m pip install "httpx[http2]>=0.27" "rookiepy>=0.5" "curl_cffi>=0.7" "httpx-curl-cffi>=0.1.5"
+py -3.13 tools\install_ai.py
+py -3.13 main.py
+```
+
+Обновить до свежей версии:
+
+```
+cd capri
+git pull
+.\setup.bat        # если менялись requirements.txt
+```
+
+Проверить, что Arena видит сессию (из папки `capri`):
+
+```
+cd arenaaispofandpars
+py -3.13 -m arena_api --status --storage ..\arena_state\cookies.json
+py -3.13 -m arena_api --models --storage ..\arena_state\cookies.json
+```
+
+Если что-то не работает — `capri.log` рядом с `main.py`: там весь ход запуска и ответ Arena.
+
 ---
 
 ## Как научить Капри разговаривать
@@ -107,7 +151,7 @@ VPN не нужен. Дождись надписи «Готово».
 Подключить заново или проверить сессию можно в любой момент: меню в трее → **«Подключить Arena…»**.
 
 Какую модель спросить, Arena решает сама — берёт самую свежую доступную. Можно закрепить свою:
-`"arena_model": "claude-…"` в `config.json` (список — `python -m arena_api --models`);
+`"arena_model": "claude-…"` в `config.json` (список — `cd arenaaispofandpars` и `python -m arena_api --models`);
 пустая строка — авто.
 
 > Без интернета разговор не работает: ответы приходят с arena.ai. Все команды компьютера работают
@@ -128,7 +172,8 @@ python -m playwright install chromium
 Проверить, что всё видно, можно командой:
 
 ```
-python -m arena_api --storage arena_state/cookies.json --status
+cd arenaaispofandpars
+python -m arena_api --status --storage ..\arena_state\cookies.json
 ```
 </details>
 
@@ -292,13 +337,15 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 для Arena (`arena.ai`) с автоматическим подхватом сессии и прокси из браузера, TLS-имперсонацией и встроенным
 авторешателем капчи.
 
-Это **самостоятельная библиотека**, а не часть Капри: она не импортируется голосовым ассистентом и у неё своя
-лицензия (Apache 2.0, см. `arenaaispofandpars/LICENSE`). Файлы лежат копией, без истории коммитов — актуальная
-версия всегда в отдельном репозитории.
+Именно через неё Капри и разговаривает: `arena_ai.py` берёт отсюда `AutoOptions`, `auto_client` и
+`auto_direct_client`. Это всё ещё самостоятельная библиотека со своей лицензией (Apache 2.0, см.
+`arenaaispofandpars/LICENSE`) и своим репозиторием: файлы лежат копией, без истории коммитов, поэтому
+обновлять её нужно в двух местах.
 
 Если хочется поставить её отдельно, из папки `arenaaispofandpars/`:
 
 ```bash
+cd arenaaispofandpars
 python -m pip install -e ".[auto]"
 python -m arena_api --status
 ```
